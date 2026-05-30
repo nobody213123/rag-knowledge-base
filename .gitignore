@@ -1,0 +1,15 @@
+# 敏感文件 & 环境
+.env
+.venv/
+venv/
+
+# 向量数据库缓存
+chroma_db/
+
+# 系统/IDE 文件
+.DS_Store
+.idea/
+
+# Python 缓存
+__pycache__/
+*.pyc
