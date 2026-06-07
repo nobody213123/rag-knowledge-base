@@ -37,10 +37,14 @@ vector_store = Chroma(
     embedding_function=embeddings,
 )
 
-# 保留原版 MMR 配置
+# MMR 检索配置 - 平衡相似度与多样性
 retriever = vector_store.as_retriever(
     search_type="mmr",
-    search_kwargs={"k": 10, "fetch_k": 20}
+    search_kwargs={
+        "k": 10,           # 返回10条结果
+        "fetch_k": 20,     # 先检索20条再筛选
+        "lambda_mult": 0.7 # 0.7=平衡相似度与多样性（0.5=更多样，1.0=更相似）
+    }
 )
 
 # 阿里云百炼客户端
@@ -88,19 +92,27 @@ def ask(question: str):
     retrieved_sources = [doc.metadata.get("source", "") for doc in docs]
     context = format_docs(docs)
 
-    # 提示词
-    sys_prompt = """你是专业知识库助手，严格只根据参考资料回答，禁止编造。
-规则：
-1. 只能使用参考资料里的内容
-2. 查不到相关资料就如实说明“暂无相关信息”，不要瞎编
-3. 回答简洁通顺、用中文
-参考资料：
+    # 提示词 - 优化版：强化拒答指令
+    sys_prompt = """你是专业知识库助手。严格遵守以下规则：
+
+【核心规则】
+1. 只能使用"参考资料"中的内容回答，禁止使用任何外部知识
+2. 如果参考资料中没有与问题相关的内容，必须回答"暂无相关信息，请联系人工客服"
+3. 判断"相关"的标准：问题的主题必须与参考资料中某段内容直接对应
+4. 不要推测、联想、引申，只回答参考资料中明确提到的内容
+
+【回答格式】
+- 回答简洁通顺，用中文
+- 如果有相关信息，直接给出答案
+- 如果没有相关信息，只说"暂无相关信息，请联系人工客服"，不要解释原因
+
+【参考资料】
 {context}""".format(context=context)
 
     # LLM耗时
     llm_start = time.time()
     response = client.chat.completions.create(
-        model="qwen-turbo",
+        model="deepseek-r1-distill-qwen-7b",
         messages=[
             {"role": "system", "content": sys_prompt},
             {"role": "user", "content": question}
@@ -123,25 +135,23 @@ def ask(question: str):
     }
 
 def run_evaluation():
-    """加载test_set.json，分开评测：业务题召回率 / 干扰题拒答"""
+    """加载test_set_400.json，分开评测：准确/干扰/模糊问答"""
     print("\n========== 开始批量 RAG 评测 ==========")
-    with open("test_set.json", "r", encoding="utf-8") as f:
+    with open("test_set_400.json", "r", encoding="utf-8") as f:
         test_data = json.load(f)
 
-    # 业务题（有相关文档）
-    recall_list = []
-    # 全部题耗时
+    accurate_recalls = []
+    fuzzy_recalls = []
+    disturb_count = 0
+    refuse_correct = 0
     retrieve_time_list = []
     llm_time_list = []
     total_time_list = []
-    # 干扰题计数
-    disturb_count = 0
-    refuse_correct = 0
 
     for item in test_data:
         q = item["question"]
-        golden_doc = [item["related_doc"].strip()]
-        is_disturb = (item["related_doc"].strip() == "")
+        q_type = item.get("type", "准确")
+        golden_doc = [item["related_doc"].strip()] if item.get("related_doc") else []
 
         res = ask(q)
         recall = calc_recall(res["retrieved_sources"], golden_doc)
@@ -151,35 +161,33 @@ def run_evaluation():
         total_time_list.append(res["total_cost_ms"])
 
         print(f"\n【问题】{q}")
-        if is_disturb:
-            # 干扰题
+
+        if q_type == "干扰":
             disturb_count += 1
-            # 判断是否正确拒答
-            if "暂无相关信息" in res["answer"] or "没有相关" in res["answer"]:
+            if "暂无相关信息" in res["answer"] or "没有相关" in res["answer"] or "无相关" in res["answer"]:
                 refuse_correct += 1
                 print("本条类型：干扰题 | 拒答正确")
             else:
-                print("本条类型：干扰题 | 拒答失败(编造答案)")
+                print("本条类型：干扰题 | 拒答失败(可能编造答案)")
+        elif q_type == "模糊":
+            fuzzy_recalls.append(recall)
+            print(f"本条类型：模糊题 | 召回率：{recall:.2%}")
         else:
-            # 业务题
-            recall_list.append(recall)
-            print(f"本条召回率：{recall:.2%}")
+            accurate_recalls.append(recall)
+            print(f"本条类型：准确题 | 召回率：{recall:.2%}")
 
         print(f"检索耗时：{res['retrieve_cost_ms']} ms | LLM耗时：{res['llm_cost_ms']} ms | 总耗时：{res['total_cost_ms']} ms")
 
-    # 平均值计算
     avg_retrieve = sum(retrieve_time_list) / len(retrieve_time_list)
     avg_llm = sum(llm_time_list) / len(llm_time_list)
     avg_total = sum(total_time_list) / len(total_time_list)
 
     print("\n========== 评测汇总结果 ==========")
-    if recall_list:
-        avg_recall = sum(recall_list) / len(recall_list)
-        print(f"业务题总数：{len(recall_list)} 道")
-        print(f"业务题平均召回率：{avg_recall:.2%}")
-    print(f"干扰题总数：{disturb_count} 道")
-    if disturb_count > 0:
-        print(f"拒答准确率：{refuse_correct / disturb_count:.2%}")
+    if accurate_recalls:
+        print(f"准确问答总数：{len(accurate_recalls)} 道 | 平均召回率：{sum(accurate_recalls)/len(accurate_recalls):.2%}")
+    if fuzzy_recalls:
+        print(f"模糊问答总数：{len(fuzzy_recalls)} 道 | 平均召回率：{sum(fuzzy_recalls)/len(fuzzy_recalls):.2%}")
+    print(f"干扰问答总数：{disturb_count} 道 | 拒答准确率：{refuse_correct/disturb_count:.2%}" if disturb_count > 0 else "")
     print(f"全局平均检索耗时：{avg_retrieve:.2f} ms")
     print(f"全局平均LLM耗时：{avg_llm:.2f} ms")
     print(f"全局平均总响应耗时：{avg_total:.2f} ms")
