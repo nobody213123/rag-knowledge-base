@@ -7,10 +7,12 @@ from pydantic import BaseModel
 
 class AskRequest(BaseModel):
     question: str
+    session_id: str = "default"
 
 
 class ChatRequest(BaseModel):
     question: str
+    session_id: str = "default"
     use_history: bool = True
 
 

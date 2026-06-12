@@ -5,6 +5,7 @@ FastAPI 入口，挂载路由 + 前端静态文件
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from app.logger import get_logger
@@ -20,10 +21,14 @@ FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("正在初始化 RAG 引擎...")
-    from app.rag.retriever import get_retriever
-    get_retriever()
-    set_rag_loaded(True)
-    logger.info("RAG 引擎初始化完成")
+    try:
+        from app.rag.retriever import get_retriever
+        get_retriever()
+        set_rag_loaded(True)
+        logger.info("RAG 引擎初始化完成")
+    except Exception as e:
+        logger.error(f"RAG 引擎初始化失败: {e}")
+        set_rag_loaded(False)
     yield
     logger.info("Web 服务关闭")
 
@@ -33,6 +38,14 @@ app = FastAPI(
     description="基于 RAG 架构的企业级私有知识库智能问答 API",
     version=API_VERSION,
     lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(chat_router, prefix="/chat", tags=["问答"])

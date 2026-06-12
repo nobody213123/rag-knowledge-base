@@ -1,35 +1,8 @@
 """
 评估指标单元测试
-测试 calc_recall、is_correct_refusal 等纯函数
+测试实际 app.evaluation.metrics 模块中的函数
 """
-import sys
-import os
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-# 模拟依赖
-sys.modules["sentence_transformers"] = type(sys)("sentence_transformers")
-sys.modules["torch"] = type(sys)("torch")
-sys.modules["chromadb"] = type(sys)("chromadb")
-
-
-def calc_recall(retrieved_sources, golden_sources):
-    hit = 0
-    total = len(golden_sources)
-    if total == 0:
-        return None
-    for gold_name in golden_sources:
-        gold_name = gold_name.strip()
-        for path in retrieved_sources:
-            if gold_name in path:
-                hit += 1
-                break
-    return hit / total
-
-
-def is_correct_refusal(answer):
-    refuse_keywords = ["暂无相关信息", "没有相关", "无相关"]
-    return any(kw in answer for kw in refuse_keywords)
+from app.evaluation.metrics import calc_recall, is_correct_refusal
 
 
 # ========== calc_recall 测试 ==========
@@ -50,6 +23,19 @@ def test_calc_recall_disturb_returns_none():
     assert calc_recall(["a.txt"], []) is None
 
 
+def test_calc_recall_path_contains_filename():
+    result = calc_recall(
+        ["./documents/产品手册.pdf"],
+        ["产品手册.pdf"],
+    )
+    assert result == 1.0
+
+
+def test_calc_recall_duplicate_golden():
+    result = calc_recall(["a.txt"], ["a.txt", "a.txt"])
+    assert result == 1.0
+
+
 # ========== is_correct_refusal 测试 ==========
 
 def test_is_correct_refusal_true():
@@ -61,15 +47,12 @@ def test_is_correct_refusal_false():
 
 
 def test_is_correct_refusal_partial():
-    assert is_correct_refusal("没有相关文档") is True
+    assert is_correct_refusal("没有相关文档能回答这个问题") is True
 
 
-if __name__ == "__main__":
-    test_calc_recall_full_hit()
-    test_calc_recall_partial_hit()
-    test_calc_recall_no_hit()
-    test_calc_recall_disturb_returns_none()
-    test_is_correct_refusal_true()
-    test_is_correct_refusal_false()
-    test_is_correct_refusal_partial()
-    print("所有评估指标测试通过！")
+def test_is_correct_refusal_empty():
+    assert is_correct_refusal("") is False
+
+
+def test_is_correct_refusal_keyword_at_start():
+    assert is_correct_refusal("无相关资料") is True

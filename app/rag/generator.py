@@ -4,6 +4,7 @@
 """
 import time
 from openai import OpenAI
+from openai import APIError, APITimeoutError, RateLimitError
 from app.config import (
     DASHSCOPE_API_KEY,
     DASHSCOPE_BASE_URL,
@@ -17,6 +18,9 @@ from app.logger import get_logger
 logger = get_logger("generator")
 
 _client = None
+
+MAX_RETRIES = 3
+RETRY_DELAY = 2.0
 
 SYSTEM_PROMPT = """你是专业知识库助手。严格遵守以下规则：
 
@@ -74,19 +78,49 @@ def build_messages(
 
 
 def generate(messages: list[dict]) -> tuple[str, float]:
-    """调用 LLM 生成回答，返回 (answer, cost_ms)"""
-    llm_start = time.time()
-    logger.info("正在调用 LLM...")
+    """调用 LLM 生成回答，返回 (answer, cost_ms)，含自动重试"""
+    last_error = None
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            llm_start = time.time()
+            logger.info(f"正在调用 LLM (尝试 {attempt}/{MAX_RETRIES})...")
 
-    response = get_client().chat.completions.create(
-        model=LLM_MODEL,
-        messages=messages,
-        temperature=LLM_TEMPERATURE,
-        max_tokens=LLM_MAX_TOKENS,
-    )
+            response = get_client().chat.completions.create(
+                model=LLM_MODEL,
+                messages=messages,
+                temperature=LLM_TEMPERATURE,
+                max_tokens=LLM_MAX_TOKENS,
+            )
 
-    cost_ms = round((time.time() - llm_start) * 1000, 2)
-    answer = response.choices[0].message.content
-    logger.info(f"LLM 回答完成: 耗时 {cost_ms}ms")
+            cost_ms = round((time.time() - llm_start) * 1000, 2)
+            answer = response.choices[0].message.content
+            if answer is None:
+                raise ValueError("LLM 返回了空的回答")
 
-    return answer, cost_ms
+            logger.info(f"LLM 回答完成: 耗时 {cost_ms}ms")
+            return answer, cost_ms
+
+        except RateLimitError as e:
+            last_error = e
+            logger.warning(f"LLM 限流 (尝试 {attempt}/{MAX_RETRIES}): {e}")
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_DELAY * attempt)
+        except APITimeoutError as e:
+            last_error = e
+            logger.warning(f"LLM 超时 (尝试 {attempt}/{MAX_RETRIES}): {e}")
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_DELAY)
+        except APIError as e:
+            last_error = e
+            logger.error(f"LLM API 错误 (尝试 {attempt}/{MAX_RETRIES}): {e}")
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_DELAY)
+        except Exception as e:
+            last_error = e
+            logger.error(f"LLM 未知错误 (尝试 {attempt}/{MAX_RETRIES}): {e}")
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_DELAY)
+
+    error_msg = f"LLM 调用失败（已重试 {MAX_RETRIES} 次）: {last_error}"
+    logger.error(error_msg)
+    return "抱歉，AI 服务暂时不可用，请稍后重试。", 0.0

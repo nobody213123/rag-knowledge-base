@@ -5,6 +5,16 @@ const SYSTEM_API = '/system';
 
 let isLoading = false;
 
+// 会话 ID（浏览器存储，用于多标签隔离）
+function getSessionId() {
+    let sid = localStorage.getItem('rag_session_id');
+    if (!sid) {
+        sid = crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).slice(2);
+        localStorage.setItem('rag_session_id', sid);
+    }
+    return sid;
+}
+
 // DOM elements
 const chatMessages = document.getElementById('chat-messages');
 const questionInput = document.getElementById('question-input');
@@ -39,7 +49,7 @@ sendBtn.addEventListener('click', sendMessage);
 clearHistoryBtn.addEventListener('click', async () => {
     if (!confirm('确定清空所有对话历史？')) return;
     try {
-        await fetch(`${API_BASE}/history/clear`, { method: 'POST' });
+        await fetch(`${API_BASE}/history/clear?session_id=${getSessionId()}`, { method: 'POST' });
         historyList.innerHTML = '';
         chatMessages.innerHTML = `
             <div class="message ai welcome">
@@ -79,7 +89,7 @@ async function sendMessage() {
         const res = await fetch(`${API_BASE}/chat`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ question, use_history: true }),
+            body: JSON.stringify({ question, use_history: true, session_id: getSessionId() }),
         });
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -215,7 +225,7 @@ async function updateStats() {
 
 async function loadHistory() {
     try {
-        const res = await fetch(`${API_BASE}/history`);
+        const res = await fetch(`${API_BASE}/history?session_id=${getSessionId()}`);
         const data = await res.json();
         historyList.innerHTML = '';
         for (const item of data.history) {

@@ -9,4 +9,4 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["python", "rag_engine.py"]
+CMD ["python", "-m", "app.main"]
