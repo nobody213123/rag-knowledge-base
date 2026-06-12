@@ -143,5 +143,6 @@ zstandard==0.25.0
 
 # Dev dependencies
 pytest==9.0.3
+pytest-asyncio==0.25.3
 ruff==0.15.16
 pytest-cov==6.0.0

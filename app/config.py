@@ -4,11 +4,15 @@
 """
 import os
 from pathlib import Path
-from dotenv import load_dotenv
 
-load_dotenv()
+# ============================================================
+# 重要：不要在本文件或任何代码中硬编码 API Key
+# 通过环境变量 DASHSCOPE_API_KEY 注入
+# 本地开发可在终端执行: export DASHSCOPE_API_KEY=sk-xxx
+# 或使用 .env 文件（已加入 .gitignore，不会被提交）
+# ============================================================
 
-# HuggingFace 国内镜像
+# HuggingFace 国内镜像（仅在中国大陆需要）
 os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -36,16 +40,22 @@ CHUNK_OVERLAP = 50
 LLM_MODEL = "deepseek-r1-distill-qwen-7b"
 LLM_TEMPERATURE = 0.3
 LLM_MAX_TOKENS = 2048
-LLM_TIMEOUT = 90.0
+LLM_TIMEOUT = 120.0
 
-# 阿里云百炼
+# 阿里云百炼（仅从环境变量读取，绝不硬编码）
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
 DASHSCOPE_BASE_URL = os.getenv("DASHSCOPE_BASE_URL")
+
+# API 认证配置（可选，设置后所有请求需通过 X-API-Key 头验证）
+API_AUTH_KEY = os.getenv("API_AUTH_KEY")
+
+# 速率限制（每 IP 每分钟最大请求数）
+RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "30"))
 
 # 对话历史配置
 MAX_HISTORY_LENGTH = 3
 
 # 服务配置
 API_HOST = "0.0.0.0"
-API_PORT = 8000
-API_VERSION = "2.0.0"
+API_PORT = int(os.getenv("API_PORT", "8000"))
+API_VERSION = "2.1.0"

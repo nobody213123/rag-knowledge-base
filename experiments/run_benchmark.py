@@ -1,7 +1,12 @@
 """
-RAG 参数对比实验脚本
-测试不同参数组合对系统效果的影响
-生成 CSV 数据和可视化图表
+RAG 参数对比实验 — 仿真探索脚本
+
+⚠️ 重要声明
+本脚本使用 simulate_experiment() 生成**模拟数据**，而非真实 RAG 评测结果。
+目的是在缺乏真实评测流水线的情况下，快速探索参数变化对系统指标的
+影响趋势（如 chunk_size 增大则召回率下降、检索耗时增加等定量关系）。
+
+真实评测结果请参考 README.md 中的 83.67% 召回率数据。
 """
 import csv
 from pathlib import Path
@@ -14,78 +19,85 @@ CHARTS_DIR.mkdir(exist_ok=True)
 
 def simulate_experiment(param_name, param_values):
     """
-    模拟实验数据
-    基于真实 RAG 系统的典型表现生成合理数据
+    模拟参数对比实验数据（非真实 RAG 评测结果）
+
+    基于以下先验知识生成"合理"的趋势数据：
+    1. chunk_size 过大 → 语义被稀释 → 召回率下降
+    2. overlap 过小 → 跨块句断裂 → 召回率下降
+    3. lambda_mult 偏离 0.7 过多 → 相似度/多样性失衡
+    4. k 太大 → 引入噪声 → 精度下降，耗时增加
+
+    真实场景中应替换为 run_eval.py 的实际评测流水线。
     """
     results = []
 
     for value in param_values:
         if param_name == "chunk_size":
             if value == 100:
-                acc, fuzzy, refuse = 98.0, 95.0, 78.0
+                acc, fuzzy, refuse = 82.0, 75.0, 78.0
                 retrieve, total = 25.0, 3200.0
             elif value == 200:
-                acc, fuzzy, refuse = 100.0, 100.0, 80.0
+                acc, fuzzy, refuse = 83.0, 77.0, 80.0
                 retrieve, total = 35.0, 3500.0
             elif value == 500:
-                acc, fuzzy, refuse = 95.0, 90.0, 75.0
+                acc, fuzzy, refuse = 78.0, 70.0, 76.0
                 retrieve, total = 50.0, 3800.0
             elif value == 1000:
-                acc, fuzzy, refuse = 85.0, 80.0, 70.0
+                acc, fuzzy, refuse = 72.0, 65.0, 72.0
                 retrieve, total = 80.0, 4200.0
             else:
-                acc, fuzzy, refuse = 75.0, 70.0, 65.0
+                acc, fuzzy, refuse = 65.0, 58.0, 68.0
                 retrieve, total = 120.0, 4800.0
 
         elif param_name == "overlap":
             if value == 0:
-                acc, fuzzy, refuse = 90.0, 85.0, 78.0
+                acc, fuzzy, refuse = 76.0, 68.0, 78.0
                 retrieve, total = 30.0, 3300.0
             elif value == 30:
-                acc, fuzzy, refuse = 95.0, 92.0, 79.0
+                acc, fuzzy, refuse = 81.0, 74.0, 79.0
                 retrieve, total = 32.0, 3400.0
             elif value == 50:
-                acc, fuzzy, refuse = 100.0, 100.0, 80.0
+                acc, fuzzy, refuse = 83.0, 77.0, 80.0
                 retrieve, total = 35.0, 3500.0
             elif value == 100:
-                acc, fuzzy, refuse = 100.0, 98.0, 80.0
+                acc, fuzzy, refuse = 83.0, 76.0, 80.0
                 retrieve, total = 40.0, 3600.0
             else:
-                acc, fuzzy, refuse = 98.0, 95.0, 79.0
+                acc, fuzzy, refuse = 82.0, 74.0, 79.0
                 retrieve, total = 45.0, 3700.0
 
         elif param_name == "lambda_mult":
             if value == 0.5:
-                acc, fuzzy, refuse = 92.0, 88.0, 78.0
+                acc, fuzzy, refuse = 76.0, 68.0, 78.0
                 retrieve, total = 38.0, 3550.0
             elif value == 0.6:
-                acc, fuzzy, refuse = 96.0, 94.0, 79.0
+                acc, fuzzy, refuse = 80.0, 74.0, 79.0
                 retrieve, total = 36.0, 3520.0
             elif value == 0.7:
-                acc, fuzzy, refuse = 100.0, 100.0, 80.0
+                acc, fuzzy, refuse = 83.0, 77.0, 80.0
                 retrieve, total = 35.0, 3500.0
             elif value == 0.8:
-                acc, fuzzy, refuse = 98.0, 96.0, 79.5
+                acc, fuzzy, refuse = 82.0, 75.0, 79.5
                 retrieve, total = 34.0, 3480.0
             else:
-                acc, fuzzy, refuse = 95.0, 90.0, 78.0
+                acc, fuzzy, refuse = 78.0, 70.0, 78.0
                 retrieve, total = 33.0, 3450.0
 
         elif param_name == "k":
             if value == 5:
-                acc, fuzzy, refuse = 88.0, 82.0, 76.0
+                acc, fuzzy, refuse = 74.0, 66.0, 76.0
                 retrieve, total = 20.0, 3100.0
             elif value == 10:
-                acc, fuzzy, refuse = 100.0, 100.0, 80.0
+                acc, fuzzy, refuse = 83.0, 77.0, 80.0
                 retrieve, total = 35.0, 3500.0
             elif value == 15:
-                acc, fuzzy, refuse = 100.0, 98.0, 79.0
+                acc, fuzzy, refuse = 83.0, 76.0, 79.0
                 retrieve, total = 50.0, 3800.0
             elif value == 20:
-                acc, fuzzy, refuse = 98.0, 95.0, 78.0
+                acc, fuzzy, refuse = 81.0, 73.0, 78.0
                 retrieve, total = 65.0, 4100.0
             else:
-                acc, fuzzy, refuse = 95.0, 90.0, 76.0
+                acc, fuzzy, refuse = 78.0, 68.0, 76.0
                 retrieve, total = 90.0, 4500.0
 
         results.append({
@@ -102,6 +114,7 @@ def simulate_experiment(param_name, param_values):
 
 
 def save_csv(results, filename):
+    """保存结果为 CSV 文件"""
     filepath = RESULTS_DIR / filename
     with open(filepath, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=results[0].keys())
@@ -111,6 +124,7 @@ def save_csv(results, filename):
 
 
 def generate_charts():
+    """从 CSV 生成可视化图表（需要 matplotlib）"""
     try:
         import matplotlib
         matplotlib.use("Agg")
@@ -155,7 +169,7 @@ def generate_charts():
         ax1.set_title(f"{title} - 准确率")
         ax1.legend()
         ax1.grid(True, alpha=0.3)
-        ax1.set_ylim(60, 105)
+        ax1.set_ylim(50, 90)
 
         ax2 = axes[1]
         ax2.plot(values, retrieve, "D-", color="red", linewidth=2)
@@ -172,9 +186,12 @@ def generate_charts():
 
 
 def main():
+    """运行四组参数对比实验（仿真数据）"""
     print("=" * 60)
-    print("RAG 参数对比实验")
+    print("RAG 参数对比实验（仿真数据）")
     print("=" * 60)
+    print("注意：本实验使用模拟数据，仅用于探索参数影响趋势")
+    print("真实评测结果请参考 README.md\n")
 
     experiments = {
         "chunk_size": [100, 200, 500, 1000, 2000],

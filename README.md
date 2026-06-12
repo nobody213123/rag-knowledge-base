@@ -7,12 +7,12 @@
 | 层级 | 技术 |
 |------|------|
 | 前端 | HTML + CSS + JavaScript（原生） |
-| Web 框架 | FastAPI + Uvicorn |
+| Web 框架 | FastAPI + Uvicorn（全异步） |
 | RAG 框架 | LangChain |
 | 向量数据库 | ChromaDB |
 | Embedding | BGE-Small-ZH (BAAI) |
-| LLM | DeepSeek-R1-Distill-Qwen-7B（阿里云百炼 API） |
-| 测试 | Pytest + Ruff |
+| LLM | DeepSeek-R1-Distill-Qwen-7B（阿里云百炼 AsyncOpenAI） |
+| 测试 | Pytest + Ruff（48 个测试用例） |
 | 部署 | Docker + Docker Compose |
 
 ## 项目成果
@@ -85,9 +85,15 @@ graph TB
         B[Swagger API /docs]
     end
 
+    subgraph 中间件栈 app/main.py
+        M1[CORS 跨域]
+        M2[速率限制 30次/分钟/IP]
+        M3[API Key 认证（可选）]
+    end
+
     subgraph 应用层 app/
         C[main.py - FastAPI 入口]
-        D[api/chat.py - 问答接口]
+        D[api/chat.py - 问答接口 async]
         E[api/system.py - 系统接口]
         F[schemas/ - 数据模型]
     end
@@ -95,8 +101,8 @@ graph TB
     subgraph RAG 引擎 app/rag/
         G[loader.py - 文档加载+分块]
         H[retriever.py - 向量库+检索]
-        I[generator.py - LLM调用]
-        J[pipeline.py - RAG主流程]
+        I[generator.py - AsyncOpenAI + 重试]
+        J[pipeline.py - RAG主流程 async]
     end
 
     subgraph 数据层
@@ -106,8 +112,9 @@ graph TB
 
     A --> C
     B --> C
-    C --> D
-    C --> E
+    C --> M1 --> M2 --> M3
+    M3 --> D
+    M3 --> E
     D --> J
     J --> H
     J --> I
@@ -157,36 +164,31 @@ flowchart LR
 ```
 rag-knowledge-base/
 ├── app/                           # 应用核心代码
-│   ├── __init__.py
-│   ├── main.py                    # FastAPI 服务入口
-│   ├── config.py                  # 全局配置
+│   ├── main.py                    # FastAPI 入口（CORS/限流/认证中间件）
+│   ├── config.py                  # 全局配置（环境变量注入）
 │   ├── logger.py                  # 日志模块
 │   │
 │   ├── api/                       # API 层
-│   │   ├── __init__.py
-│   │   ├── chat.py                # 问答接口
-│   │   └── system.py              # 系统接口
+│   │   ├── chat.py                # 问答接口（async）
+│   │   └── system.py              # 系统接口（线程安全统计）
 │   │
-│   ├── rag/                       # RAG 引擎
-│   │   ├── __init__.py
+│   ├── rag/                       # RAG 引擎（全异步）
 │   │   ├── loader.py              # 文档加载 + 分块
 │   │   ├── retriever.py           # Embeddings + 向量库 + 检索
-│   │   ├── generator.py           # LLM 调用 + Prompt 构建
-│   │   └── pipeline.py            # RAG 主流程（串联检索→生成）
+│   │   ├── generator.py           # AsyncOpenAI + 3 次重试
+│   │   └── pipeline.py            # RAG 主流程（async / 线程安全）
 │   │
 │   ├── evaluation/                # 评测模块
-│   │   ├── __init__.py
 │   │   ├── metrics.py             # 指标计算
 │   │   └── runner.py              # 批量评测
 │   │
-│   └── schemas/                   # 数据模型
-│       ├── __init__.py
+│   └── schemas/                   # Pydantic 数据模型
 │       └── chat.py                # Request/Response 定义
 │
 ├── frontend/                      # Web 聊天界面
 │   ├── index.html                 # 页面结构
 │   ├── style.css                  # 样式
-│   └── app.js                     # 交互逻辑
+│   └── app.js                     # 交互逻辑（localStorage session）
 │
 ├── scripts/                       # 命令行脚本
 │   ├── build_index.py             # 构建知识库索引
@@ -194,33 +196,35 @@ rag-knowledge-base/
 │   └── chat_cli.py                # CLI 交互
 │
 ├── documents/                     # 知识库原始文档
-├── data/                          # 测试数据集
+├── data/                          # 测试数据集（440+ 条）
 ├── chroma_db/                     # 向量数据库（运行时生成）
 ├── logs/                          # 运行日志
 │
 ├── experiments/                   # 参数对比实验
-│   ├── run_benchmark.py
-│   └── REPORT.md
+│   ├── run_benchmark.py           # 仿真数据探索
+│   └── REPORT.md                  # 实验报告（含数据声明）
 │
-├── tests/                         # 27 个测试用例
+├── tests/                         # 48 个测试用例
 ├── docs/                          # 详细文档
 ├── .github/workflows/ci.yml       # CI 配置
-├── Dockerfile                     # Docker 镜像
-├── docker-compose.yml             # Docker 编排
+├── Dockerfile                     # Docker 镜像（含 curl）
+├── docker-compose.yml             # Docker 编排（healthcheck）
 └── requirements.txt               # Python 依赖
 ```
 
 ## API 接口
 
-| 接口 | 方法 | 前缀 | 说明 |
-|------|------|------|------|
-| `/chat/ask` | POST | 问答 | 单次问答（无历史） |
-| `/chat/chat` | POST | 问答 | 多轮对话（支持历史） |
-| `/chat/history` | GET | 问答 | 获取对话历史 |
-| `/chat/history/clear` | POST | 问答 | 清空对话历史 |
-| `/system/health` | GET | 系统 | 健康检查 |
-| `/system/stats` | GET | 系统 | 调用统计 |
-| `/system/rebuild` | POST | 系统 | 重建索引 |
+| 接口 | 方法 | 说明 |
+|------|------|------|
+| `/chat/ask` | POST | 单次问答（无历史，异步） |
+| `/chat/chat` | POST | 多轮对话（session_id 隔离） |
+| `/chat/history?session_id=` | GET | 获取指定会话的历史 |
+| `/chat/history/clear?session_id=` | POST | 清空指定会话的历史 |
+| `/system/health` | GET | 健康检查（Docker healthcheck） |
+| `/system/stats` | GET | 调用统计（线程安全） |
+| `/system/rebuild` | POST | 重建知识库索引 |
+
+> 可选认证：设置 `API_AUTH_KEY` 环境变量后，请求需携带 `X-API-Key` 头。
 
 ### 使用示例
 
@@ -276,6 +280,18 @@ curl -X POST http://localhost:8000/chat/chat \
 | 模糊问答 | 70 条 | 部分信息或需推理 |
 | **总计** | **440 条** | 覆盖三类场景 |
 
+## 安全特性
+
+| 特性 | 说明 |
+|------|------|
+| API Key 安全 | 密钥仅从环境变量读取，不硬编码、不入 git |
+| 启动校验 | 服务启动时校验 DASHSCOPE_API_KEY，避免运行时崩溃 |
+| 可选认证 | 设置 API_AUTH_KEY 后所有 API 需要 X-API-Key 头 |
+| 速率限制 | 每 IP 每分钟最多 30 次请求（可配置） |
+| CORS 控制 | 允许跨域但标注生产环境需限制域名 |
+| Docker 安全 | .dockerignore 排除 .env/.venv/__pycache__ |
+| 输入校验 | Pydantic 模型验证请求参数，拒绝空/无效输入 |
+
 ## 技术难点
 
 | 难点 | 解决方案 | 效果 |
@@ -283,7 +299,9 @@ curl -X POST http://localhost:8000/chat/chat \
 | 幻觉问题 | 强制引用 + 拒答机制 + 温度控制 | 拒答率 91% |
 | 检索重复 | MMR 算法平衡相似度与多样性 | 减少冗余 |
 | 分块边界 | Overlap 重叠 + 参数调优 | 召回率提升 12% |
-| 多轮对话 | 历史窗口管理 + 可选历史 | 支持连续问答 |
+| 多轮对话 | 按 session_id 隔离历史 + 线程锁 | 支持多用户并发 |
 | 文档溯源 | Prompt 约束 + 元数据保留 | 引用准确 |
+| 事件循环阻塞 | 全异步 pipeline + asyncio.to_thread | 支持高并发 |
+| API 容错 | 3 次重试 + 分级退避 + 友好降级 | 生产可用性 |
 
 详细文档见 [docs/](docs/) 目录。

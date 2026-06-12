@@ -1,6 +1,7 @@
 """
 问答 API
 处理单次问答和多轮对话请求
+所有路由均为 async，调用异步 pipeline 避免阻塞事件循环
 """
 from fastapi import APIRouter, HTTPException, Query
 from app.logger import get_logger
@@ -20,13 +21,16 @@ router = APIRouter()
 
 @router.post("/ask", response_model=AskResponse, summary="单次问答")
 async def ask_question(request: AskRequest):
-    """单次问答接口（无历史上下文）"""
+    """单次问答接口（无历史上下文），异步调用 pipeline"""
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="问题不能为空")
 
     logger.info(f"收到 API 请求: {request.question[:50]}...")
-    result = pipeline.ask(request.question)
 
+    # 异步调用 pipeline.ask()，不阻塞事件循环
+    result = await pipeline.ask(request.question)
+
+    # 记录调用统计
     record_query(
         retrieve_ms=result["retrieve_cost_ms"],
         llm_ms=result["llm_cost_ms"],
@@ -45,17 +49,23 @@ async def ask_question(request: AskRequest):
 
 @router.post("/chat", response_model=ChatResponse, summary="多轮对话")
 async def chat(request: ChatRequest):
-    """多轮对话接口（支持历史上下文 + 文档溯源）"""
+    """多轮对话接口（支持历史上下文 + 文档溯源），异步调用 pipeline"""
     if not request.question.strip():
         raise HTTPException(status_code=400, detail="问题不能为空")
 
-    logger.info(f"收到对话请求 (session={request.session_id}): {request.question[:50]}...")
-    result = pipeline.ask_with_history(
+    logger.info(
+        f"收到对话请求 (session={request.session_id}): "
+        f"{request.question[:50]}..."
+    )
+
+    # 异步调用 pipeline.ask_with_history()，不阻塞事件循环
+    result = await pipeline.ask_with_history(
         request.question,
         session_id=request.session_id,
         use_history=request.use_history,
     )
 
+    # 记录调用统计
     record_query(
         retrieve_ms=result["retrieve_cost_ms"],
         llm_ms=result["llm_cost_ms"],

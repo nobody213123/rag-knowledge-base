@@ -1,6 +1,6 @@
 """
 检索模块
-负责 Embeddings、向量库、检索器
+负责 Embedding 模型、向量库、检索器的初始化与调用
 """
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
@@ -17,7 +17,7 @@ from app.logger import get_logger
 
 logger = get_logger("retriever")
 
-# 延迟初始化，避免 import 时执行
+# 单例模式：模块级缓存，避免重复加载模型
 _embeddings = None
 _vector_store = None
 _retriever = None
@@ -36,7 +36,7 @@ def get_embeddings() -> HuggingFaceEmbeddings:
 
 
 def get_vector_store() -> Chroma:
-    """获取向量库（单例）"""
+    """获取向量库（单例），从磁盘加载已持久化的 ChromaDB"""
     global _vector_store
     if _vector_store is None:
         logger.info("正在加载向量库...")
@@ -50,9 +50,10 @@ def get_vector_store() -> Chroma:
 
 
 def get_retriever() -> BaseRetriever:
-    """获取检索器（单例）"""
+    """获取检索器（单例），使用 MMR 算法平衡相似度与多样性"""
     global _retriever
     if _retriever is None:
+        logger.info("正在配置检索器（MMR）...")
         _retriever = get_vector_store().as_retriever(
             search_type="mmr",
             search_kwargs={
@@ -66,13 +67,12 @@ def get_retriever() -> BaseRetriever:
 
 
 def build_vector_store(chunks, persist_dir: str = None):
-    """构建向量库（用于索引构建）"""
+    """构建向量库（用于 scripts/build_index.py 索引构建）"""
     if persist_dir is None:
         persist_dir = str(CHROMA_PERSIST_DIR)
 
     embeddings = get_embeddings()
     logger.info(f"正在构建向量库，存储到: {persist_dir}")
-    print(f"正在构建向量库，存储到：{persist_dir}")
 
     vector_store = Chroma.from_documents(
         documents=chunks,
@@ -82,12 +82,11 @@ def build_vector_store(chunks, persist_dir: str = None):
     )
 
     logger.info(f"向量库构建完成，共 {len(chunks)} 个向量")
-    print(f"向量库构建完成，共 {len(chunks)} 个向量")
     return vector_store
 
 
 def clear_vector_store():
-    """清空向量库"""
+    """清空向量库（用于重建索引前的清理）"""
     global _vector_store, _retriever
     vector_store = get_vector_store()
     vector_store.delete_collection()

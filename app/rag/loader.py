@@ -1,12 +1,12 @@
 """
 文档加载与分块模块
-负责读取文档并切分为 chunks
+负责读取 documents/ 目录下的文档并切分为 chunks
 """
 from pathlib import Path
 from langchain_community.document_loaders import (
-    PyPDFLoader,
-    Docx2txtLoader,
-    TextLoader,
+    PyPDFLoader,     # PDF 解析
+    Docx2txtLoader,  # Word 解析
+    TextLoader,      # 纯文本解析
 )
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_core.documents import Document
@@ -17,11 +17,14 @@ logger = get_logger("loader")
 
 
 def load_documents(directory: Path = DOCUMENTS_DIR) -> list[Document]:
-    """加载目录下所有支持的文档"""
+    """
+    加载目录下所有支持的文档
+    支持 .pdf / .docx / .txt 三种格式
+    返回 langchain Document 对象列表
+    """
     docs = []
     if not directory.exists():
-        logger.warning(f"目录 {directory} 不存在")
-        print(f"警告：目录 {directory} 不存在，请创建并放入文档")
+        logger.warning(f"目录 {directory} 不存在，请创建并放入文档")
         return docs
 
     logger.info(f"开始扫描目录: {directory}")
@@ -29,6 +32,7 @@ def load_documents(directory: Path = DOCUMENTS_DIR) -> list[Document]:
         if file_path.is_file():
             suffix = file_path.suffix.lower()
             try:
+                # 根据文件后缀选择对应的加载器
                 if suffix == ".pdf":
                     loader = PyPDFLoader(str(file_path))
                 elif suffix == ".docx":
@@ -36,7 +40,7 @@ def load_documents(directory: Path = DOCUMENTS_DIR) -> list[Document]:
                 elif suffix == ".txt":
                     loader = TextLoader(str(file_path), encoding="utf-8")
                 else:
-                    print(f"跳过不支持的文件：{file_path.name}")
+                    logger.info(f"跳过不支持的文件类型: {file_path.name}")
                     continue
 
                 file_docs = loader.load()
@@ -44,14 +48,11 @@ def load_documents(directory: Path = DOCUMENTS_DIR) -> list[Document]:
                     doc.metadata["source"] = str(file_path)
                 docs.extend(file_docs)
                 logger.info(f"已加载: {file_path.name} ({len(file_docs)} 段)")
-                print(f"  已加载：{file_path.name} ({len(file_docs)} 段)")
 
             except Exception as e:
                 logger.error(f"加载失败 {file_path.name}: {e}")
-                print(f"  加载失败 {file_path.name}：{e}")
 
     logger.info(f"共加载 {len(docs)} 个文档片段")
-    print(f"共加载 {len(docs)} 个文档片段")
     return docs
 
 
@@ -60,7 +61,10 @@ def split_documents(
     chunk_size: int = CHUNK_SIZE,
     chunk_overlap: int = CHUNK_OVERLAP,
 ) -> list[Document]:
-    """将文档切分为小块"""
+    """
+    将文档切分为小块（chunk）
+    使用 RecursiveCharacterTextSplitter，按段落 → 句子 → 字符递进切割
+    """
     logger.info(f"开始分块: chunk_size={chunk_size}, overlap={chunk_overlap}")
     splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
@@ -69,5 +73,4 @@ def split_documents(
     )
     chunks = splitter.split_documents(documents)
     logger.info(f"分块完成: {len(documents)} 段 -> {len(chunks)} 个文本块")
-    print(f"分块完成：{len(documents)} 段 -> {len(chunks)} 个文本块")
     return chunks

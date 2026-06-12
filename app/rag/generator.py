@@ -1,9 +1,15 @@
 """
 生成模块
 负责 LLM 调用和 Prompt 构建
+
+核心设计：
+- 使用 AsyncOpenAI 异步客户端，避免阻塞 FastAPI 事件循环
+- 支持自动重试（限流/超时/服务端错误各 3 次）
+- 所有失败路径返回友好提示，不会抛未处理异常
 """
+import asyncio
 import time
-from openai import OpenAI
+from openai import AsyncOpenAI
 from openai import APIError, APITimeoutError, RateLimitError
 from app.config import (
     DASHSCOPE_API_KEY,
@@ -17,10 +23,11 @@ from app.logger import get_logger
 
 logger = get_logger("generator")
 
-_client = None
+_client = None  # AsyncOpenAI 客户端（单例）
 
+# 重试策略
 MAX_RETRIES = 3
-RETRY_DELAY = 2.0
+RETRY_DELAY = 2.0  # 基础退避时间（秒）
 
 SYSTEM_PROMPT = """你是专业知识库助手。严格遵守以下规则：
 
@@ -43,12 +50,12 @@ SYSTEM_PROMPT = """你是专业知识库助手。严格遵守以下规则：
 {context}"""
 
 
-def get_client() -> OpenAI:
-    """获取 LLM 客户端（单例）"""
+def get_client() -> AsyncOpenAI:
+    """获取 LLM 客户端（单例），返回 AsyncOpenAI 实例"""
     global _client
     if _client is None:
-        logger.info("正在初始化 LLM 客户端...")
-        _client = OpenAI(
+        logger.info("正在初始化 LLM 客户端（异步模式）...")
+        _client = AsyncOpenAI(
             api_key=DASHSCOPE_API_KEY,
             base_url=DASHSCOPE_BASE_URL,
             timeout=LLM_TIMEOUT,
@@ -62,7 +69,11 @@ def build_messages(
     question: str,
     history_context: str = "",
 ) -> list[dict]:
-    """构建发送给 LLM 的消息列表"""
+    """
+    构建发送给 LLM 的消息列表
+    - system: 系统指令 + 参考资料
+    - user: 历史对话（如有） + 当前问题
+    """
     sys_prompt = SYSTEM_PROMPT.format(context=context)
     messages = [{"role": "system", "content": sys_prompt}]
 
@@ -77,15 +88,20 @@ def build_messages(
     return messages
 
 
-def generate(messages: list[dict]) -> tuple[str, float]:
-    """调用 LLM 生成回答，返回 (answer, cost_ms)，含自动重试"""
+async def generate(messages: list[dict]) -> tuple[str, float]:
+    """
+    调用 LLM 生成回答（异步）
+    使用 AsyncOpenAI 客户端，不阻塞事件循环
+    返回 (answer, cost_ms)，失败时返回友好错误提示
+    """
     last_error = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
             llm_start = time.time()
             logger.info(f"正在调用 LLM (尝试 {attempt}/{MAX_RETRIES})...")
 
-            response = get_client().chat.completions.create(
+            # 异步 API 调用，不阻塞事件循环
+            response = await get_client().chat.completions.create(
                 model=LLM_MODEL,
                 messages=messages,
                 temperature=LLM_TEMPERATURE,
@@ -101,26 +117,34 @@ def generate(messages: list[dict]) -> tuple[str, float]:
             return answer, cost_ms
 
         except RateLimitError as e:
+            # 限流：递增退避时间
             last_error = e
             logger.warning(f"LLM 限流 (尝试 {attempt}/{MAX_RETRIES}): {e}")
             if attempt < MAX_RETRIES:
-                time.sleep(RETRY_DELAY * attempt)
+                await asyncio.sleep(RETRY_DELAY * attempt)
+
         except APITimeoutError as e:
+            # 超时：固定间隔重试
             last_error = e
             logger.warning(f"LLM 超时 (尝试 {attempt}/{MAX_RETRIES}): {e}")
             if attempt < MAX_RETRIES:
-                time.sleep(RETRY_DELAY)
+                await asyncio.sleep(RETRY_DELAY)
+
         except APIError as e:
+            # API 错误（如 500）：重试
             last_error = e
             logger.error(f"LLM API 错误 (尝试 {attempt}/{MAX_RETRIES}): {e}")
             if attempt < MAX_RETRIES:
-                time.sleep(RETRY_DELAY)
+                await asyncio.sleep(RETRY_DELAY)
+
         except Exception as e:
+            # 兜底：所有未分类异常
             last_error = e
             logger.error(f"LLM 未知错误 (尝试 {attempt}/{MAX_RETRIES}): {e}")
             if attempt < MAX_RETRIES:
-                time.sleep(RETRY_DELAY)
+                await asyncio.sleep(RETRY_DELAY)
 
+    # 所有重试都失败，返回友好提示而非抛出异常
     error_msg = f"LLM 调用失败（已重试 {MAX_RETRIES} 次）: {last_error}"
     logger.error(error_msg)
     return "抱歉，AI 服务暂时不可用，请稍后重试。", 0.0
