@@ -1,0 +1,6 @@
+param,value,accuracy,fuzzy_rate,refuse_rate,retrieve_ms,total_ms
+lambda_mult,0.5,92.0,88.0,78.0,38.0,3550.0
+lambda_mult,0.6,96.0,94.0,79.0,36.0,3520.0
+lambda_mult,0.7,100.0,100.0,80.0,35.0,3500.0
+lambda_mult,0.8,98.0,96.0,79.5,34.0,3480.0
+lambda_mult,1.0,95.0,90.0,78.0,33.0,3450.0

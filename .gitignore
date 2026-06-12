@@ -13,3 +13,11 @@ chroma_db/
 # Python 缓存
 __pycache__/
 *.pyc
+
+# 测试/工具缓存
+.pytest_cache/
+.ruff_cache/
+.coverage
+
+# 日志文件
+logs/

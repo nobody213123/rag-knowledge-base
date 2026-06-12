@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG 知识库问答系统</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <h2>对话历史</h2>
+                <button id="clear-history-btn" title="清空历史">🗑️</button>
+            </div>
+            <div id="history-list" class="history-list"></div>
+            <div class="sidebar-footer">
+                <div class="stats">
+                    <span id="stats-queries">0</span> 次查询
+                </div>
+            </div>
+        </aside>
+
+        <main class="main-area">
+            <header class="chat-header">
+                <h1>RAG 知识库</h1>
+                <span class="status" id="status-indicator">
+                    <span class="status-dot"></span>
+                    <span id="status-text">就绪</span>
+                </span>
+            </header>
+
+            <div id="chat-messages" class="chat-messages">
+                <div class="message ai welcome">
+                    <div class="avatar">🤖</div>
+                    <div class="bubble">
+                        <p>你好！我是知识库助手，请问有什么可以帮助你的？</p>
+                        <p class="hint">你可以问关于产品保修、退货政策、售后服务等问题。</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="input-area">
+                <div id="sources-panel" class="sources-panel hidden">
+                    <div class="sources-header">
+                        <span>📎 引用来源</span>
+                        <button id="sources-close">✕</button>
+                    </div>
+                    <div id="sources-content" class="sources-content"></div>
+                </div>
+                <div class="input-row">
+                    <textarea
+                        id="question-input"
+                        rows="1"
+                        placeholder="输入你的问题..."
+                        maxlength="2000"
+                    ></textarea>
+                    <button id="send-btn" disabled>
+                        <span>发送</span>
+                    </button>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

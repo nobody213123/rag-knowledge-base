@@ -1,0 +1,20 @@
+version: "3.8"
+
+services:
+  rag-app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./documents:/app/documents
+      - ./chroma_db:/app/chroma_db
+      - ./logs:/app/logs
+    environment:
+      - DASHSCOPE_API_KEY=${DASHSCOPE_API_KEY}
+      - DASHSCOPE_BASE_URL=${DASHSCOPE_BASE_URL}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
