@@ -21,3 +21,6 @@ __pycache__/
 
 # 日志文件
 logs/
+
+# 评测结果 JSON（大文件，不提交 git）
+experiments/eval_results_*.json

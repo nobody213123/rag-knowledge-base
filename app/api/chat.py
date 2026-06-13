@@ -27,11 +27,13 @@ async def ask_question(request: AskRequest):
 
     logger.info(f"收到 API 请求: {request.question[:50]}...")
 
-    # 异步调用 pipeline.ask()，不阻塞事件循环
-    result = await pipeline.ask(request.question)
+    try:
+        result = await pipeline.ask(request.question)
+    except Exception as e:
+        logger.error(f"问答请求失败: {e}")
+        raise HTTPException(status_code=500, detail=f"服务内部错误: {str(e)}")
 
-    # 记录调用统计
-    record_query(
+    await record_query(
         retrieve_ms=result["retrieve_cost_ms"],
         llm_ms=result["llm_cost_ms"],
         total_ms=result["total_cost_ms"],
@@ -58,15 +60,17 @@ async def chat(request: ChatRequest):
         f"{request.question[:50]}..."
     )
 
-    # 异步调用 pipeline.ask_with_history()，不阻塞事件循环
-    result = await pipeline.ask_with_history(
-        request.question,
-        session_id=request.session_id,
-        use_history=request.use_history,
-    )
+    try:
+        result = await pipeline.ask_with_history(
+            request.question,
+            session_id=request.session_id,
+            use_history=request.use_history,
+        )
+    except Exception as e:
+        logger.error(f"对话请求失败 (session={request.session_id}): {e}")
+        raise HTTPException(status_code=500, detail=f"服务内部错误: {str(e)}")
 
-    # 记录调用统计
-    record_query(
+    await record_query(
         retrieve_ms=result["retrieve_cost_ms"],
         llm_ms=result["llm_cost_ms"],
         total_ms=result["total_cost_ms"],
@@ -86,12 +90,12 @@ async def chat(request: ChatRequest):
 @router.get("/history", response_model=HistoryResponse, summary="获取对话历史")
 async def get_history(session_id: str = Query("default", description="会话 ID")):
     """获取指定会话的对话历史"""
-    history = pipeline.get_history(session_id)
+    history = await pipeline.get_history(session_id)
     return HistoryResponse(history=history, count=len(history))
 
 
 @router.post("/history/clear", summary="清空对话历史")
 async def clear_history(session_id: str = Query("default", description="会话 ID")):
     """清空指定会话的对话历史"""
-    pipeline.clear_history(session_id)
+    await pipeline.clear_history(session_id)
     return {"message": f"会话 {session_id} 的历史已清空"}

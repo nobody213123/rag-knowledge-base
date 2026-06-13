@@ -5,25 +5,18 @@ RAG Pipeline
 设计要点：
 - 所有对外接口均为 async，避免阻塞 FastAPI 事件循环
 - 对话历史按 session_id 隔离，支持多用户并发
-- 全局状态使用 threading.Lock 保护，线程安全
+- 检索使用混合模式（向量 + BM25 + 重排序），精度更高
+- 对话历史存储在 Redis（可用时），支持跨实例共享
 """
 import asyncio
 import time
-import threading
-from collections import defaultdict
 from app.config import MAX_HISTORY_LENGTH
 from app.logger import get_logger
-from app.rag.retriever import get_retriever
+from app.rag.retriever import hybrid_retrieve
 from app.rag.generator import build_messages, generate
+from app import redis_client as history_store
 
 logger = get_logger("pipeline")
-
-# 基于 session_id 的对话历史管理
-# 使用 defaultdict(list) 实现按需创建会话
-conversation_histories: dict[str, list[dict]] = defaultdict(list)
-
-# 全局锁，保护对话历史的并发写入
-_history_lock = threading.Lock()
 
 
 def format_docs_with_source(docs) -> tuple[str, list[dict]]:
@@ -51,16 +44,16 @@ def format_docs_with_source(docs) -> tuple[str, list[dict]]:
 async def ask(question: str, history_context: str = "") -> dict:
     """
     单次问答（异步）
-    执行检索 → 格式化 → 生成的完整 RAG 流程
+    执行混合检索 → 格式化 → 生成的完整 RAG 流程
     返回答案、检索文档、各阶段耗时
     """
     total_start = time.time()
     logger.info(f"收到问题: {question[:50]}...")
 
-    # 阶段一：检索（通过 asyncio.to_thread 放到线程池，不阻塞事件循环）
+    # 阶段一：混合检索（通过 asyncio.to_thread 放到线程池，不阻塞事件循环）
     retrieve_start = time.time()
     loop = asyncio.get_event_loop()
-    docs = await loop.run_in_executor(None, get_retriever().invoke, question)
+    docs = await loop.run_in_executor(None, hybrid_retrieve, question)
     retrieve_cost = round((time.time() - retrieve_start) * 1000, 2)
     logger.info(f"检索完成: {len(docs)} 条结果, 耗时 {retrieve_cost}ms")
 
@@ -90,52 +83,42 @@ async def ask_with_history(
 ) -> dict:
     """
     支持多轮对话的问答（按 session_id 隔离历史）
-    - 从对应 session 中取出最近 N 轮历史拼入 context
+    - 从 Redis 中取出最近 N 轮历史拼入 context
     - 调用 ask() 执行 RAG 流程
-    - 将结果保存到历史
+    - 将结果保存到 Redis
     """
-    with _history_lock:
-        history = conversation_histories[session_id]
+    history = await history_store.get_history(session_id)
 
-        # 构建历史上下文字符串
-        history_context = ""
-        if use_history and history:
-            history_lines = []
-            for h in history[-MAX_HISTORY_LENGTH:]:
-                history_lines.append(f"用户：{h['question']}")
-                history_lines.append(f"助手：{h['answer']}")
-            history_context = "\n".join(history_lines)
+    # 构建历史上下文字符串
+    history_context = ""
+    if use_history and history:
+        history_lines = []
+        for h in history[-MAX_HISTORY_LENGTH:]:
+            history_lines.append(f"用户：{h['question']}")
+            history_lines.append(f"助手：{h['answer']}")
+        history_context = "\n".join(history_lines)
 
     # 调用单次问答（异步）
     result = await ask(question, history_context=history_context)
 
-    # 保存到历史（加锁保护）
-    with _history_lock:
-        history.append({
-            "question": question,
-            "answer": result["answer"],
-        })
+    # 保存到历史（Redis 自动控制长度和 TTL）
+    await history_store.append_history(session_id, {
+        "question": question,
+        "answer": result["answer"],
+    })
 
-        # 历史过长时截断，保留最近 MAX_HISTORY_LENGTH 条
-        if len(history) > MAX_HISTORY_LENGTH * 2:
-            conversation_histories[session_id] = history[-MAX_HISTORY_LENGTH:]
-
-        result["history_length"] = len(conversation_histories[session_id])
+    updated = await history_store.get_history(session_id)
+    result["history_length"] = len(updated)
 
     return result
 
 
-def clear_history(session_id: str = "default"):
-    """清空指定会话的对话历史（线程安全）"""
-    with _history_lock:
-        if session_id in conversation_histories:
-            conversation_histories[session_id].clear()
-            logger.info(f"会话 {session_id} 的历史已清空")
-        else:
-            logger.info(f"会话 {session_id} 不存在历史记录")
+async def clear_history(session_id: str = "default"):
+    """清空指定会话的对话历史"""
+    await history_store.clear_history(session_id)
+    logger.info(f"会话 {session_id} 的历史已清空")
 
 
-def get_history(session_id: str = "default"):
-    """获取指定会话的对话历史（线程安全）"""
-    with _history_lock:
-        return list(conversation_histories.get(session_id, []))
+async def get_history(session_id: str = "default"):
+    """获取指定会话的对话历史"""
+    return await history_store.get_history(session_id)

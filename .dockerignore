@@ -1,6 +1,7 @@
 .git
 .gitignore
 .env
+.env.example
 .venv
 venv
 __pycache__
@@ -12,3 +13,7 @@ chroma_db
 logs
 .DS_Store
 .idea
+tests/
+docs/
+experiments/
+data/

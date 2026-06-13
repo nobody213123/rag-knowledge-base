@@ -37,20 +37,36 @@ CHUNK_SIZE = 200
 CHUNK_OVERLAP = 50
 
 # LLM 配置
-LLM_MODEL = "deepseek-r1-distill-qwen-7b"
+LLM_MODEL = "qwen-plus"
 LLM_TEMPERATURE = 0.3
 LLM_MAX_TOKENS = 2048
 LLM_TIMEOUT = 120.0
 
 # 阿里云百炼（仅从环境变量读取，绝不硬编码）
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
-DASHSCOPE_BASE_URL = os.getenv("DASHSCOPE_BASE_URL")
+DASHSCOPE_BASE_URL = os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
 
 # API 认证配置（可选，设置后所有请求需通过 X-API-Key 头验证）
 API_AUTH_KEY = os.getenv("API_AUTH_KEY")
 
 # 速率限制（每 IP 每分钟最大请求数）
 RATE_LIMIT_PER_MINUTE = int(os.getenv("RATE_LIMIT_PER_MINUTE", "30"))
+
+# 混合检索配置
+HYBRID_SEARCH_ENABLED = os.getenv("HYBRID_SEARCH_ENABLED", "true").lower() == "true"
+HYBRID_WEIGHT_VECTOR = float(os.getenv("HYBRID_WEIGHT_VECTOR", "0.5"))
+HYBRID_WEIGHT_BM25 = float(os.getenv("HYBRID_WEIGHT_BM25", "0.5"))
+
+# 重排序配置
+RERANKER_ENABLED = os.getenv("RERANKER_ENABLED", "false").lower() == "true"  # CPU太慢，默认关闭；开启需export RERANKER_ENABLED=true
+RERANKER_MODEL = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
+RERANKER_TOP_K = 5
+
+# Redis 配置（如果不设置 REDIS_HOST 则使用内存存储）
+REDIS_HOST = os.getenv("REDIS_HOST", "")
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
+REDIS_DB = int(os.getenv("REDIS_DB", "0"))
+REDIS_TTL = int(os.getenv("REDIS_TTL", "86400"))  # 默认 24 小时过期
 
 # 对话历史配置
 MAX_HISTORY_LENGTH = 3

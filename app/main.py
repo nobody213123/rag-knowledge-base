@@ -49,6 +49,12 @@ async def lifespan(app: FastAPI):
         logger.error(f"RAG 引擎初始化失败: {e}")
         set_rag_loaded(False)
     yield
+    # 关闭时清理 Redis 连接
+    try:
+        from app import redis_client
+        await redis_client.close()
+    except Exception:
+        pass
     logger.info("Web 服务关闭")
 
 

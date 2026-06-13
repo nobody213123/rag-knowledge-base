@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.rag.loader import load_documents, split_documents
-from app.rag.retriever import build_vector_store
+from app.rag.retriever import build_vector_store, clear_vector_store
 from app.logger import get_logger
 
 logger = get_logger("build_index")
@@ -20,6 +20,9 @@ def main():
     print("=" * 50)
     print("开始构建知识库索引")
     print("=" * 50)
+
+    # 清空旧索引，确保重建后 BM25 缓存不残留
+    clear_vector_store()
 
     print("\n[步骤 1/3] 加载文档...")
     documents = load_documents()

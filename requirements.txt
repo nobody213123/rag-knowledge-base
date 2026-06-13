@@ -29,6 +29,12 @@ docx2txt
 # HTTP
 httpx
 
+# 混合检索
+rank-bm25
+
+# 对话历史持久化
+redis>=5.0.0
+
 # 数据校验
 pydantic>=2.0.0
 

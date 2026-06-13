@@ -4,8 +4,10 @@ Pipeline 单元测试
 
 注意：
 - format_docs_with_source 是同步纯函数
-- ask / ask_with_history 是异步函数，使用集成测试覆盖
+- get_history / clear_history 是异步函数
+- 历史使用 Redis 或内存回退（无 Redis 时自动降级）
 """
+import pytest
 from app.rag.pipeline import format_docs_with_source, get_history, clear_history
 
 
@@ -70,26 +72,34 @@ def test_format_docs_source_without_slash():
 
 
 # ============================================================
-# session 历史管理测试
+# session 历史管理测试（异步）
 # ============================================================
 
-def test_get_history_default_empty():
+@pytest.mark.asyncio
+async def test_get_history_default_empty():
     """默认 session 历史应为空"""
-    assert get_history() == []
+    history = await get_history()
+    assert history == []
 
 
-def test_get_history_nonexistent_session():
+@pytest.mark.asyncio
+async def test_get_history_nonexistent_session():
     """不存在的 session 应返回空列表"""
-    assert get_history("nonexistent") == []
+    history = await get_history("nonexistent")
+    assert history == []
 
 
-def test_clear_history_nonexistent_session():
+@pytest.mark.asyncio
+async def test_clear_history_nonexistent_session():
     """清空不存在的 session 不应报错"""
-    clear_history("no_such_session")
+    await clear_history("no_such_session")
     assert True
 
 
-def test_get_history_isolated_sessions():
+@pytest.mark.asyncio
+async def test_get_history_isolated_sessions():
     """不同 session 的历史应互相隔离"""
-    assert get_history("session_a") == []
-    assert get_history("session_b") == []
+    h1 = await get_history("isolated_a")
+    h2 = await get_history("isolated_b")
+    assert h1 == []
+    assert h2 == []
