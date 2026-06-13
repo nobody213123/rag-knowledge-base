@@ -5,7 +5,6 @@
 import json
 import sys
 from pathlib import Path
-from collections import Counter
 
 import matplotlib
 matplotlib.use("Agg")
@@ -71,7 +70,7 @@ def plot_metrics_summary(data: dict):
     plt.tight_layout()
     fig.savefig(CHARTS_DIR / "metrics_summary.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"  ✓ metrics_summary.png")
+    print("  ✓ metrics_summary.png")
 
 
 def plot_recall_distribution(data: dict):
@@ -107,7 +106,7 @@ def plot_recall_distribution(data: dict):
     plt.tight_layout()
     fig.savefig(CHARTS_DIR / "recall_distribution.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"  ✓ recall_distribution.png")
+    print("  ✓ recall_distribution.png")
 
 
 def plot_time_distribution(data: dict):
@@ -143,7 +142,7 @@ def plot_time_distribution(data: dict):
     plt.tight_layout()
     fig.savefig(CHARTS_DIR / "time_distribution.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"  ✓ time_distribution.png")
+    print("  ✓ time_distribution.png")
 
 
 def plot_recall_vs_time(data: dict):
@@ -179,7 +178,7 @@ def plot_recall_vs_time(data: dict):
     plt.tight_layout()
     fig.savefig(CHARTS_DIR / "recall_vs_time.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"  ✓ recall_vs_time.png")
+    print("  ✓ recall_vs_time.png")
 
 
 def plot_refusal_analysis(data: dict):
@@ -187,7 +186,7 @@ def plot_refusal_analysis(data: dict):
     disturb = [r for r in data["results"] if r["type"] == "干扰"]
 
     if not disturb:
-        print(f"  - 无干扰题数据，跳过拒答分析图")
+        print("  - 无干扰题数据，跳过拒答分析图")
         return
 
     correct = [r for r in disturb if r["is_refuse_correct"]]
@@ -214,7 +213,7 @@ def plot_refusal_analysis(data: dict):
     plt.tight_layout()
     fig.savefig(CHARTS_DIR / "refusal_analysis.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"  ✓ refusal_analysis.png")
+    print("  ✓ refusal_analysis.png")
 
 
 def main():
@@ -232,12 +231,11 @@ def main():
 
     data = load_results(json_path)
     metrics = data["metrics"]
-    results = data["results"]
 
     total = metrics["accurate_count"] + metrics["fuzzy_count"] + metrics["disturb_count"]
     print(f"加载评测结果: {total} 题 (准确{metrics['accurate_count']} 模糊{metrics['fuzzy_count']} 干扰{metrics['disturb_count']})")
     print(f"核心指标: 准确召回{metrics['accurate_recall']:.2%} 模糊召回{metrics['fuzzy_recall']:.2%} 拒答率{metrics['refuse_accuracy']:.2%}")
-    print(f"生成图表...")
+    print("生成图表...")
 
     CHARTS_DIR.mkdir(parents=True, exist_ok=True)
 

@@ -2,7 +2,6 @@
 评测运行器
 负责批量跑测试集并生成报告
 """
-import asyncio
 import json
 from pathlib import Path
 from datetime import datetime
