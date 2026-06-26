@@ -1,5 +1,20 @@
 # 更新日志
 
+## [2.1.1] - 2025-06-24
+
+### Bug 修复
+- **conftest 导入修复**：`tests/conftest.py` 导入路径从 `app.redis_client` 修正为 `app.memory.store`，修复所有测试无法运行的问题
+- **Pipeline 二次判断修复**：`pipeline.py` 重写查询后 Judge 阶段使用重写后的查询而非原始查询
+- **PII 检测修复**：`guardrails/output.py` 使用精确匹配 `verdict.strip().startswith("无")` 替代子串匹配
+- **CORS 安全修复**：`main.py` 通过环境变量 `CORS_ORIGINS` 配置允许的域名，避免 `allow_origins=["*"]` + `allow_credentials=True` 的安全漏洞
+
+### 改进
+- **asyncio 弃用修复**：`pipeline.py` 使用 `asyncio.get_running_loop()` 替代弃用的 `get_event_loop()`
+- **速率限制器内存修复**：`rate_limiter.py` 每 100 次检查后清理超过 2 分钟无活动的 IP 记录
+- **Tracer 内存修复**：`tracer.py` 使用 `deque(maxlen=1000)` 替代无限增长的 list
+- **配置灵活性**：`config.py` 使用 `setdefault` 设置 `HF_ENDPOINT`，允许环境变量覆盖
+- **BM25 类型安全**：`retriever.py` 使用 `_bm25_available` 标志位替代 `False` 哨兵值
+
 ## [2.1.0] - 2025-06-12
 
 ### 核心修复

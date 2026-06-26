@@ -9,6 +9,7 @@
 4. CrossEncoder 重排序（精排 Top-K）
 """
 import re
+import json
 import threading
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
@@ -18,6 +19,7 @@ from app.config import (
     EMBEDDING_MODEL,
     CHROMA_PERSIST_DIR,
     COLLECTION_NAME,
+    DATA_DIR,
     RETRIEVER_K,
     RETRIEVER_FETCH_K,
     RETRIEVER_LAMBDA_MULT,
@@ -27,6 +29,7 @@ from app.config import (
     RERANKER_ENABLED,
     RERANKER_MODEL,
     RERANKER_TOP_K,
+    GUARDRAIL_ENABLED,
 )
 from app.logger import get_logger
 
@@ -39,8 +42,10 @@ _retriever = None
 _bm25 = None
 _bm25_corpus = None
 _bm25_metadatas = None
+_bm25_available = False  # 标记 BM25 是否可用
 _reranker = None
 _bm25_lock = threading.Lock()
+_parent_chunks = None  # Small-to-Big: {section_id: full_text}
 
 
 def get_embeddings() -> HuggingFaceEmbeddings:
@@ -114,8 +119,8 @@ def _chinese_tokenize(text: str) -> list[str]:
 
 def _init_bm25():
     """从 ChromaDB 读取全量文档构建 BM25 索引（单例，懒加载 + 并发锁）"""
-    global _bm25, _bm25_corpus, _bm25_metadatas
-    if _bm25 is not None:
+    global _bm25, _bm25_corpus, _bm25_metadatas, _bm25_available
+    if _bm25 is not None or _bm25_available is False and _bm25 is not None:
         return
 
     with _bm25_lock:
@@ -126,7 +131,8 @@ def _init_bm25():
             from rank_bm25 import BM25Okapi
         except ImportError:
             logger.warning("rank_bm25 未安装，BM25 混合检索不可用")
-            _bm25 = False
+            _bm25_available = False
+            _bm25 = None
             return
 
         logger.info("正在从 ChromaDB 读取文档构建 BM25 索引...")
@@ -135,20 +141,22 @@ def _init_bm25():
 
         if not all_data or not all_data.get("documents"):
             logger.warning("ChromaDB 中无文档，BM25 索引为空")
-            _bm25 = False
+            _bm25_available = False
+            _bm25 = None
             return
 
         _bm25_corpus = all_data["documents"]
         _bm25_metadatas = all_data.get("metadatas", [{}] * len(_bm25_corpus))
         tokenized = [_chinese_tokenize(doc) for doc in _bm25_corpus]
         _bm25 = BM25Okapi(tokenized)
+        _bm25_available = True
         logger.info(f"BM25 索引构建完成，共 {len(_bm25_corpus)} 个文档")
 
 
 def _bm25_search(query: str, k: int) -> list[Document]:
     """执行 BM25 关键词检索，返回 Document 列表"""
     _init_bm25()
-    if not _bm25 or not _bm25_corpus:
+    if not _bm25_available or not _bm25_corpus:
         return []
 
     tokenized_query = _chinese_tokenize(query)
@@ -241,13 +249,71 @@ def _rrf_fusion(
 # 混合检索入口
 # ============================================================
 
-def hybrid_retrieve(query: str, k: int = None) -> list[Document]:
+# ============================================================
+# Small-to-Big 父块扩展
+# ============================================================
+
+
+def get_parent_chunks() -> dict[str, str]:
+    """加载父块索引（懒加载）"""
+    global _parent_chunks
+    if _parent_chunks is not None:
+        return _parent_chunks
+
+    path = DATA_DIR / "parent_chunks.json"
+    if not path.exists():
+        logger.warning(f"parent_chunks.json 不存在: {path}")
+        _parent_chunks = {}
+        return _parent_chunks
+
+    with open(path, "r", encoding="utf-8") as f:
+        _parent_chunks = json.load(f)
+    logger.info(f"加载父块: {len(_parent_chunks)} 条")
+    return _parent_chunks
+
+
+def _expand_to_parent(chunks: list[Document]) -> list[Document]:
     """
-    混合检索：向量语义 + BM25 关键词 → RRF 融合 → CrossEncoder 重排
+    Small-to-Big 展开：将子块的内容替换为其所属父块的完整内容
+
+    流程：
+      1. 根据每个 chunk 的 section_id 查找父块
+      2. 替换 page_content 为父块全量文本
+      3. 保留子块的 metadata（保留 section_id 用于溯源）
+    """
+    parent_map = get_parent_chunks()
+    if not parent_map:
+        return chunks
+
+    expanded = []
+    for chunk in chunks:
+        section_id = chunk.metadata.get("section_id", "")
+        if section_id and section_id in parent_map:
+            parent_text = parent_map[section_id]
+            new_chunk = Document(
+                page_content=parent_text,
+                metadata={**chunk.metadata, "is_parent": True, "child_content": chunk.page_content},
+            )
+            expanded.append(new_chunk)
+        else:
+            expanded.append(chunk)
+
+    logger.info(f"Small-to-Big 展开: {len(chunks)} → {len(expanded)} 条")
+    return expanded
+
+
+# ============================================================
+# 混合检索入口
+# ============================================================
+
+def hybrid_retrieve(query: str, k: int = None, user_level: str = None) -> list[Document]:
+    """
+    混合检索：向量语义 + BM25 关键词 → RRF 融合 → CrossEncoder 重排 → 权限过滤
 
     参数：
         query: 用户问题
         k: 最终返回的文档数（默认 RETRIEVER_K）
+        user_level: 用户角色（admin/internal/guest），控制文档级权限
 
     返回：
         list[Document]: 按相关性降序排列的文档列表
@@ -256,7 +322,9 @@ def hybrid_retrieve(query: str, k: int = None) -> list[Document]:
         k = RETRIEVER_K
 
     if not HYBRID_SEARCH_ENABLED:
-        return get_retriever().invoke(query)
+        result = get_retriever().invoke(query)
+        result = _expand_to_parent(result)
+        return _apply_security_filter(result, user_level)
 
     # 阶段一：向量检索（语义相似度）
     vector_docs = get_retriever().invoke(query)
@@ -280,7 +348,21 @@ def hybrid_retrieve(query: str, k: int = None) -> list[Document]:
     else:
         result = fused
 
+    # 阶段五：Small-to-Big 父块扩展
+    result = _expand_to_parent(result)
+
+    # 阶段六：权限过滤
+    result = _apply_security_filter(result, user_level)
+
     return result
+
+
+def _apply_security_filter(docs: list[Document], user_level: str | None) -> list[Document]:
+    """按用户角色过滤文档权限"""
+    if not GUARDRAIL_ENABLED or user_level is None:
+        return docs
+    from app.guardrails.security import filter_by_role
+    return filter_by_role(docs, user_level)
 
 
 # ============================================================
@@ -308,7 +390,7 @@ def build_vector_store(chunks, persist_dir: str = None):
 
 def clear_vector_store():
     """清空向量库（用于重建索引前的清理）"""
-    global _vector_store, _retriever, _bm25, _bm25_corpus, _bm25_metadatas
+    global _vector_store, _retriever, _bm25, _bm25_corpus, _bm25_metadatas, _bm25_available
     vector_store = get_vector_store()
     vector_store.delete_collection()
     _vector_store = None
@@ -316,4 +398,5 @@ def clear_vector_store():
     _bm25 = None
     _bm25_corpus = None
     _bm25_metadatas = None
+    _bm25_available = False
     logger.info("向量库已清空")

@@ -12,8 +12,8 @@ from pathlib import Path
 # 或使用 .env 文件（已加入 .gitignore，不会被提交）
 # ============================================================
 
-# HuggingFace 国内镜像（仅在中国大陆需要）
-os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+# HuggingFace 国内镜像（仅在中国大陆需要，通过 HF_ENDPOINT 环境变量配置）
+os.environ.setdefault("HF_ENDPOINT", "https://hf-mirror.com")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # 路径配置
@@ -28,13 +28,9 @@ EMBEDDING_MODEL = "BAAI/bge-small-zh-v1.5"
 COLLECTION_NAME = "knowledge_base"
 
 # 检索配置
-RETRIEVER_K = 10
+RETRIEVER_K = 15
 RETRIEVER_FETCH_K = 20
 RETRIEVER_LAMBDA_MULT = 0.7
-
-# 分块配置
-CHUNK_SIZE = 200
-CHUNK_OVERLAP = 50
 
 # LLM 配置
 LLM_MODEL = "qwen-plus"
@@ -70,6 +66,10 @@ REDIS_TTL = int(os.getenv("REDIS_TTL", "86400"))  # 默认 24 小时过期
 
 # 对话历史配置
 MAX_HISTORY_LENGTH = 3
+
+# Guardrail 配置
+GUARDRAIL_ENABLED = os.getenv("GUARDRAIL_ENABLED", "true").lower() == "true"
+DEFAULT_USER_ROLE = os.getenv("DEFAULT_USER_ROLE", "internal")
 
 # 服务配置
 API_HOST = "0.0.0.0"
